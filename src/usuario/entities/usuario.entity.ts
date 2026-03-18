@@ -30,7 +30,6 @@ export class Usuario {
 
     @IsOptional()
     @OneToMany(() => Produto, (produto) => produto.usuario)
-    @ApiPropertyOptional({ type: () => [Produto] })
     @Type(() => Produto)
     produtos: Produto[];
 }

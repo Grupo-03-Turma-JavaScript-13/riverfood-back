@@ -24,10 +24,5 @@ export class Categoria {
 
   @OneToMany(() => Produto, (produto) => produto.categoria)
   @Type(() => Produto)
-  @ApiPropertyOptional({ 
-    type: () => Produto, 
-    isArray: true,
-    description: 'Lista de produtos pertencentes a esta categoria' 
-  })
   produtos: Produto[];
 }

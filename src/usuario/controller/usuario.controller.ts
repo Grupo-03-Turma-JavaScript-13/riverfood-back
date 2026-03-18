@@ -19,8 +19,7 @@ export class UsuarioController {
     return this.usuarioService.create(usuario);
   }
 
-  // Rotas PRIVADAS (Exigem token)
-  @ApiBearerAuth()
+ 
   @UseGuards(JwtAuthGuard)
   @Get('/all')
   @HttpCode(HttpStatus.OK)
@@ -29,15 +28,14 @@ export class UsuarioController {
     return this.usuarioService.findAll();
   }
 
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @Get('/:id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Busca um usuário por ID (Oculta a senha)' })
   findById(@Param('id', ParseIntPipe) id: number) {
     return this.usuarioService.findById(id);
   }
-
+  
+  // Rotas PRIVADAS (Exigem token)
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Put('/atualizar')

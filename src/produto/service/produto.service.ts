@@ -1,16 +1,9 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  Repository,
-  DeleteResult,
-  MoreThan,
-  LessThan,
-  ILike,
-  Between,
-} from 'typeorm';
+import { Repository, DeleteResult } from 'typeorm';
 import { CategoriaService } from '../../categoria/service/categoria.service';
 import { Produto } from '../entities/produto.entity';
-import { calcularHealthScore } from '../util/health-score.helper'; // Importando nosso cérebro nutricional
+import { calcularHealthScore } from '../util/health-score.helper';
 import { Usuario } from '../../usuario/entities/usuario.entity';
 import { TagPreparo } from '../enums/tag-preparo.enum';
 
@@ -22,66 +15,87 @@ export class ProdutoService {
     private readonly categoriaService: CategoriaService,
   ) {}
 
-  async findAll(): Promise<Produto[]> {
-    return this.produtoRepository.find({
-      relations: { categoria: true, usuario: true },
-    });
+  /**
+   * UTILITÁRIO INTERNO: Cria a query base para buscar produtos.
+   * Traz a Categoria e o Usuário (Dono), mas seleciona APENAS dados seguros do usuário,
+   * garantindo que a senha jamais saia do banco de dados.
+   */
+  private createBaseQuery() {
+    return this.produtoRepository.createQueryBuilder('produto')
+      .leftJoinAndSelect('produto.categoria', 'categoria') // Traz tudo da categoria
+      .leftJoin('produto.usuario', 'usuario')              // Faz o join com usuário
+      .addSelect(['usuario.id', 'usuario.nome', 'usuario.usuario']); // Escolhe só o que é seguro
   }
 
-  getTagsPreparoMap():{ id: string, label: string }[] {
+  getTagsPreparoMap(): { id: string, label: string }[] {
     return Object.keys(TagPreparo).map(key => {
       return {
-        id: TagPreparo[key], // Ex: 'cozido-no-vapor' (o que salva no banco)
-        // Transforma a chave 'COZIDO_NO_VAPOR' em 'Cozido No Vapor'
+        id: TagPreparo[key],
         label: key.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase())
       };
     });
   }
 
-  /**
-   * MOTOR DE RECOMENDAÇÃO:
-   * Retorna os produtos priorizando aqueles com maior Health Score (densidade nutricional).
-   * Ideal para a "Vitrine de Saúde" do App.
-   */
+  // ==========================================
+  // ROTAS DE BUSCA (READ) - Usando QueryBuilder
+  // ==========================================
+
+  async findAll(): Promise<Produto[]> {
+    return await this.createBaseQuery().getMany();
+  }
+
   async findAllHealthy(): Promise<Produto[]> {
-    return this.produtoRepository.find({
-      relations: { categoria: true, usuario: true },
-      order: { healthScore: 'DESC' }, // RECOMENDAÇÃO: Saudáveis no topo!
-    });
+    return await this.createBaseQuery()
+      .orderBy('produto.healthScore', 'DESC') // RECOMENDAÇÃO: Saudáveis no topo!
+      .getMany();
   }
 
   async findById(id: number): Promise<Produto> {
-    const resultado = await this.produtoRepository.findOne({
-      where: { id },
-      relations: { categoria: true, usuario: true },
-    });
+    const resultado = await this.createBaseQuery()
+      .where('produto.id = :id', { id })
+      .getOne();
 
     if (!resultado) {
-      throw new HttpException(
-        `Produto com id ${id} não encontrado`,
-        HttpStatus.NOT_FOUND,
-      );
+      throw new HttpException(`Produto com id ${id} não encontrado`, HttpStatus.NOT_FOUND);
     }
     return resultado;
   }
 
   async findAllByNome(nome: string): Promise<Produto[]> {
-    return await this.produtoRepository.find({
-      where: { nome: ILike(`%${nome}%`) },
-      relations: { categoria: true },
-      order: { healthScore: 'DESC' }, // Mantém a recomendação na busca por nome
-    });
+    return await this.createBaseQuery()
+      .where('produto.nome ILIKE :nome', { nome: `%${nome}%` })
+      .orderBy('produto.healthScore', 'DESC')
+      .getMany();
   }
 
+  async findPrecoMoreThan(value: number): Promise<Produto[]> {
+    return await this.createBaseQuery()
+      .where('produto.preco > :value', { value })
+      .orderBy('produto.preco', 'ASC')
+      .getMany();
+  }
+
+  async findPrecoLessThan(value: number): Promise<Produto[]> {
+    return await this.createBaseQuery()
+      .where('produto.preco < :value', { value })
+      .orderBy('produto.preco', 'DESC')
+      .getMany();
+  }
+
+  async findByFaixaDePreco(min: number, max: number): Promise<Produto[]> {
+    return await this.createBaseQuery()
+      .where('produto.preco BETWEEN :min AND :max', { min, max })
+      .orderBy('produto.preco', 'ASC')
+      .getMany();
+  }
+
+  // ==========================================
+  // ROTAS DE ESCRITA (CREATE, UPDATE, DELETE)
+  // ==========================================
+
   async create(produto: Produto, usuarioLogadoId: number): Promise<Produto> {
-    // 1. Valida se a categoria existe
     await this.categoriaService.findById(produto.categoria.id);
-
-    // 2. MOTOR DE RECOMENDAÇÃO: Calcula a nota baseada nas tags
     produto.healthScore = calcularHealthScore(produto.tagsPreparo);
-
-    // 3. SEGURANÇA: Força o dono do produto a ser o usuário do Token
-    // Usamos o 'as any' ou uma interface para evitar erro de tipagem circular do TS
     produto.usuario = { id: usuarioLogadoId } as Usuario;
 
     const { id, ...novoProduto } = produto;
@@ -89,33 +103,29 @@ export class ProdutoService {
   }
 
   async update(produto: Produto, usuarioLogadoId: number): Promise<Produto> {
-    // 1. Buscamos o produto, mas garantimos que ele pertença ao usuário que enviou a requisição
+    // Mantemos o findOne simples aqui porque ele serve só para validação interna, não é retornado
     const produtoExistente = await this.produtoRepository.findOne({
       where: {
         id: produto.id,
-        usuario: { id: usuarioLogadoId }, // Filtro Crítico: O dono tem que ser o mesmo
+        usuario: { id: usuarioLogadoId },
       },
     });
 
     if (!produtoExistente) {
       throw new HttpException(
         'Produto não encontrado ou você não tem permissão para editá-lo',
-        HttpStatus.FORBIDDEN, // Erro 403: Proibido
+        HttpStatus.FORBIDDEN,
       );
     }
 
-    // 2. Se passou, validamos a categoria e recalculamos o score
     await this.categoriaService.findById(produto.categoria.id);
     produto.healthScore = calcularHealthScore(produto.tagsPreparo);
-
-    // 3. Garantimos que o usuário do produto continue sendo o logado (evita troca de dono via JSON)
     produto.usuario = { id: usuarioLogadoId } as Usuario;
 
     return this.produtoRepository.save(produto);
   }
 
   async delete(id: number, usuarioLogadoId: number): Promise<DeleteResult> {
-    // Tenta encontrar o produto que pertença ao usuário logado
     const produto = await this.produtoRepository.findOne({
       where: { id, usuario: { id: usuarioLogadoId } },
     });
@@ -128,31 +138,5 @@ export class ProdutoService {
     }
 
     return this.produtoRepository.delete(id);
-  }
-
-  // --- FILTROS DE PREÇO ---
-
-  async findPrecoMoreThan(value: number): Promise<Produto[]> {
-    return await this.produtoRepository.find({
-      where: { preco: MoreThan(value) },
-      relations: { categoria: true },
-      order: { preco: 'ASC' },
-    });
-  }
-
-  async findPrecoLessThan(value: number): Promise<Produto[]> {
-    return await this.produtoRepository.find({
-      where: { preco: LessThan(value) },
-      relations: { categoria: true },
-      order: { preco: 'DESC' },
-    });
-  }
-
-  async findByFaixaDePreco(min: number, max: number): Promise<Produto[]> {
-    return this.produtoRepository.find({
-      where: { preco: Between(min, max) },
-      relations: { categoria: true },
-      order: { preco: 'ASC' },
-    });
   }
 }
