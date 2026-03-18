@@ -19,8 +19,7 @@ export class UsuarioController {
     return this.usuarioService.create(usuario);
   }
 
- 
-  @UseGuards(JwtAuthGuard)
+  
   @Get('/all')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Lista todos os usuários (Oculta a senha)' })
@@ -34,7 +33,7 @@ export class UsuarioController {
   findById(@Param('id', ParseIntPipe) id: number) {
     return this.usuarioService.findById(id);
   }
-  
+
   // Rotas PRIVADAS (Exigem token)
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
