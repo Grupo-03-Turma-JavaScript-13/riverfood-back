@@ -95,6 +95,7 @@ export class ProdutoService {
 
   async create(produto: Produto, usuarioLogadoId: number): Promise<Produto> {
     await this.categoriaService.findById(produto.categoria.id);
+    produto.tagsPreparo= Array.from(new Set(produto.tagsPreparo));
     produto.healthScore = calcularHealthScore(produto.tagsPreparo);
     produto.usuario = { id: usuarioLogadoId } as Usuario;
 
