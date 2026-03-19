@@ -96,6 +96,9 @@ export class ProdutoService {
   async create(produto: Produto, usuarioLogadoId: number): Promise<Produto> {
     await this.categoriaService.findById(produto.categoria.id);
     produto.tagsPreparo= Array.from(new Set(produto.tagsPreparo));
+    if(produto.tagsPreparo.length < 3){
+      throw new HttpException(`Tags de Preparo precisa conter 3 tags diferentes`, HttpStatus.BAD_REQUEST);
+    }
     produto.healthScore = calcularHealthScore(produto.tagsPreparo);
     produto.usuario = { id: usuarioLogadoId } as Usuario;
 
