@@ -16,7 +16,7 @@ import { UsuarioModule } from './usuario/usuario.module';
         ssl: true,
         entities: [Categoria, Produto, Usuario],
         autoLoadEntities: false,
-        synchronize: false,
+        synchronize: true,
         extra: {
           ssl: {
             rejectUnauthorized: false,
